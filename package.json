@@ -4,9 +4,12 @@
   "private": true,
   "scripts": {
     "anchor": "cd anchor && anchor",
-    "anchor-build": "cd anchor && anchor build",
     "anchor-localnet": "cd anchor && anchor localnet",
-    "anchor-test": "cd anchor && anchor test",
+    "anchor::build": "./scripts/build_anchor.sh",
+    "anchor::deploy": "./scripts/deploy_anchor.sh",
+    "anchor::test": "./scripts/test_anchor.sh",
+    "airdrop": "npx ts-node scripts/airdrop.ts",
+    "local-validator": "solana-test-validator",
     "dev": "next dev",
     "build": "next build",
     "ci": "npm run build",
@@ -14,8 +17,7 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "0.30.1",
-    "@solana/spl-token": "0.4.12",
+    "@coral-xyz/anchor": "^0.30.0",
     "@solana/wallet-adapter-base": "0.9.24",
     "@solana/wallet-adapter-react": "0.15.36",
     "@solana/wallet-adapter-react-ui": "0.9.36",
@@ -23,14 +25,18 @@
     "@tabler/icons-react": "^3.30.0",
     "@tanstack/react-query": "^5.66.9",
     "@tanstack/react-query-next-experimental": "^5.66.9",
+    "anchor-bankrun": "^0.5.0",
     "daisyui": "^4.12.24",
     "jotai": "^2.12.1",
     "next": "14.2.24",
     "react": "^18",
     "react-dom": "^18",
-    "react-hot-toast": "^2.5.2"
+    "react-hot-toast": "^2.5.2",
+    "solana-bankrun": "^0.4.0",
+    "spl-token-bankrun": "^0.2.6"
   },
   "devDependencies": {
+    "@solana/spl-token": "^0.4.13",
     "@types/bn.js": "^5.1.6",
     "@types/jest": "^29.5.14",
     "@types/node": "^22",
