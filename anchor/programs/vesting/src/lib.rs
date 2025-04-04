@@ -6,7 +6,7 @@ pub use constants::*;
 use anchor_lang::prelude::*;
 use anchor_spl::{associated_token::AssociatedToken, token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked}};
 
-declare_id!("HakBGtf9GRgadv2dEGHuVTtT16gVCpfdHn2vQxHdzHJe");
+declare_id!("Akr4zGgrNpMh6wgASsH24epvwmRXD7biTYhcC2z65GwV");
 
 #[program]
 pub mod vesting {

@@ -1,96 +1,200 @@
-# legacy-token-vesting
+# Solana Token Vesting dApp
+
+A decentralized token vesting application built on Solana using the Anchor framework. This dApp allows organizations to create vesting schedules for employees or stakeholders, where tokens are gradually unlocked over time according to predefined parameters.
+
+## Features
+
+- Create vesting accounts for organizations/projects
+- Add employees with custom vesting schedules
+- Linear vesting with configurable cliff periods
+- Visual progress tracking of vesting schedules
+- Secure token claiming for employees
+- Intuitive UI with real-time updates
 
 ## Getting Started
 
 ### Prerequisites
 
-- Node v18.18.0 or higher
+Ensure you have the following installed:
 
-- Rust v1.77.2 or higher
-- Anchor CLI 0.30.1 or higher
-- Solana CLI 1.18.17 or higher
+- **Node.js**: v18 or higher
+- **Rust**: v1.68.0 or higher
+- **Anchor CLI**: v0.29.0 or higher
+- **Solana CLI**: v1.16.0 or higher
 
 ### Installation
 
-#### Clone the repo
+1. Clone the repository:
+
+   ```shell
+   git clone git@github.com:iamramtin/token-vesting-dapp.git
+   cd token-vesting-dapp
+   ```
+
+2. Install dependencies:
+
+   ```shell
+   npm install
+   # or
+   yarn install
+   # or
+   pnpm install
+   ```
+
+3. Start the web app:
+   ```shell
+   npm run dev
+   # or
+   yarn dev
+   # or
+   pnpm dev
+   ```
+
+## Program Setup
+
+### Deploy the Program
+
+1. Build the program:
+
+   ```shell
+   anchor build
+   ```
+
+2. Deploy to your chosen network:
+
+   ```shell
+   # For local development
+   anchor deploy --provider.cluster localhost
+
+   # For devnet
+   anchor deploy --provider.cluster devnet
+   ```
+
+## Testing the dApp
+
+### Setup a Local Validator
 
 ```shell
-git clone <repo-url>
-cd <repo-name>
+solana-test-validator
 ```
 
-#### Install Dependencies
+### Create Test SPL Tokens
 
-```shell
-pnpm install
-```
+1. Generate a new token mint:
 
-#### Start the web app
+   ```shell
+   spl-token create-token --url localhost
+   ```
 
-```
-pnpm dev
-```
+   This will output a token mint address like: `CkoDpiy2MSCS8fUiZ3BzBGmw3Q8Q1KRrUoRA6wAJTy25`
 
-## Apps
+2. Create a token account for your wallet:
 
-### anchor
+   ```shell
+   spl-token create-account <TOKEN_MINT_ADDRESS> --url localhost
+   ```
 
-This is a Solana program written in Rust using the Anchor framework.
+3. Mint tokens to your account:
+   ```shell
+   spl-token mint <TOKEN_MINT_ADDRESS> 1000000 --url localhost
+   ```
 
-#### Commands
+### Create Test Accounts
 
-You can use any normal anchor commands. Either move to the `anchor` directory and run the `anchor` command or prefix the
-command with `pnpm`, eg: `pnpm anchor`.
+1. Generate new Solana addresses for testing:
 
-#### Sync the program id:
+   ```shell
+   # Generate employee keypair
+   solana-keygen new --no-bip39-passphrase -o employee-keypair.json
 
-Running this command will create a new keypair in the `anchor/target/deploy` directory and save the address to the
-Anchor config file and update the `declare_id!` macro in the `./src/lib.rs` file of the program.
+   # Get the public key to use as employee address
+   solana address -k employee-keypair.json
+   ```
 
-You will manually need to update the constant in `anchor/lib/counter-exports.ts` to match the new program id.
+2. Fund the test accounts:
+   ```shell
+   solana airdrop 2 $(solana address -k employee-keypair.json) --url localhost
+   ```
 
-```shell
-pnpm anchor keys sync
-```
+## Using the dApp
 
-#### Build the program:
+### Creating a Vesting Account (Employer)
 
-```shell
-pnpm anchor-build
-```
+1. Connect your wallet
+2. Click "Create Vesting Account"
+3. Enter your company/project name
+4. Enter the SPL token mint address you created earlier
+5. Click "Create Vesting Account"
 
-#### Start the test validator with the program deployed:
+### Funding the Treasury
 
-```shell
-pnpm anchor-localnet
-```
+After creating a vesting account:
 
-#### Run the tests
+1. Copy the treasury account address from your vesting account card
+2. Send tokens to this address:
+   ```shell
+   spl-token transfer <TOKEN_MINT_ADDRESS> <AMOUNT> <TREASURY_ADDRESS> --fund-recipient --url localhost
+   ```
 
-```shell
-pnpm anchor-test
-```
+### Adding Employees to a Vesting Schedule
 
-#### Deploy to Devnet
+1. Click "Add Employee" on your vesting account card
+2. Enter the employee's wallet address (use the test address you generated)
+3. Enter the vesting parameters:
+   - **Token Amount**: Total tokens to vest (e.g., 10000)
+   - **Start Date**: When vesting begins
+   - **Cliff Date**: When tokens first become available
+   - **End Date**: When 100% of tokens are vested
+4. Click "Add Employee"
 
-```shell
-pnpm anchor deploy --provider.cluster devnet
-```
+### Claiming Tokens (Employee)
 
-### web
+1. Connect with the employee's wallet
+2. Navigate to "Your Vesting Grants"
+3. View vesting progress and available tokens
+4. Click "Claim Tokens" when tokens are available (after cliff period)
 
-This is a React app that uses the Anchor generated client to interact with the Solana program.
+## Troubleshooting
 
-#### Commands
+### Common Issues
 
-Start the web app
+1. **Program ID Mismatch**:
 
-```shell
-pnpm dev
-```
+   - Run `node scripts/checkProgramId.ts --update` to fix mismatches
+   - Ensure the dApp and frontend code are updated with the correct program ID.
 
-Build the web app
+2. **Transaction Simulation Failed**:
 
-```shell
-pnpm build
-```
+   - Check that your treasury has sufficient tokens
+   - Ensure your dates for vesting make sense (start < cliff < end)
+
+3. **Account Not Found**:
+
+   - Verify the program is deployed to the correct network
+   - Check you're connected to the right cluster in the UI
+
+4. **Insufficient Funds**:
+   - Run `solana airdrop 2 <YOUR_ADDRESS> --url localhost` for SOL
+   - For test tokens, mint more using `spl-token mint <TOKEN_MINT_ADDRESS> <AMOUNT>`
+
+## Architecture
+
+### On-Chain Program (Anchor/Rust)
+
+- **EmployerVesting**: Account for organizations to manage vesting schedules
+- **EmployeeVesting**: Account for individual employee vesting schedules
+- **Instructions**:
+  - `createEmployerVesting`: Create a vesting account for an organization
+  - `createEmployeeVesting`: Add an employee to a vesting schedule
+  - `claimTokens`: Allow employees to claim vested tokens
+
+### Frontend (Next.js/React)
+
+- **vesting-data-access.tsx**: Custom hooks for interacting with the Solana program
+- **vesting-ui.tsx**: UI components for the vesting interface
+- **vesting-feature.tsx**: Main component combining data and UI layers
+- **page.tsx**: Next.js page component
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

@@ -9,6 +9,7 @@
     "anchor::deploy": "./scripts/deploy_anchor.sh",
     "anchor::test": "./scripts/test_anchor.sh",
     "airdrop": "npx ts-node scripts/airdrop.ts",
+    "checkProgramId": "npx ts-node scripts/checkProgramId.ts",
     "local-validator": "solana-test-validator",
     "dev": "next dev",
     "build": "next build",
