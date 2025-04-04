@@ -135,8 +135,8 @@ pub struct CreateEmployerVesting<'info> {
     #[account(
         init, 
         token::mint = token_mint, 
-        // token::authority = treasury_account, 
-        token::authority = employer_vesting, 
+        token::authority = treasury_account, 
+        // token::authority = employer_vesting, 
         payer = employer, 
         seeds = [b"vesting_treasury", company_name.as_bytes()], 
         bump
