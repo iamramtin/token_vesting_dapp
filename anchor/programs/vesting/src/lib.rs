@@ -8,97 +8,121 @@ use anchor_spl::{associated_token::AssociatedToken, token_interface::{self, Mint
 
 declare_id!("Akr4zGgrNpMh6wgASsH24epvwmRXD7biTYhcC2z65GwV");
 
+/// A token vesting program that allows gradual release of tokens to beneficiaries
+/// over a predefined schedule. Features include:
+/// - Creating vesting authorities that can manage multiple beneficiaries
+/// - Setting up custom vesting schedules with start time, end time, and cliff
+/// - Claiming vested tokens based on elapsed time (linear vesting)
+/// - Revoking vesting schedules by the authority
 #[program]
 pub mod vesting {
     use super::*;
 
-    // Instruction to create a vesting account for an employer.
-    // This account will hold the treasury tokens that will be allocated to employees.
-    pub fn create_employer_vesting(
-        ctx: Context<CreateEmployerVesting>,
-        company_name: String,
+    // Sets up a vesting authority that manages token allocations
+    pub fn create_vesting_authority(
+        ctx: Context<CreateVestingAuthority>,
+        vesting_id: String,
     ) -> Result<()> {
-        *ctx.accounts.employer_vesting = EmployerVesting {
-            employer: ctx.accounts.employer.key(), // Owner of the vesting account (employer).
-            token_mint: ctx.accounts.token_mint.key(), // SPL token mint being distributed.
-            treasury_account: ctx.accounts.treasury_account.key(), // Treasury token account.
-            company_name, // Name of the company.
-            treasury_bump: ctx.bumps.treasury_account, // Bump for treasury PDA.
-            bump: ctx.bumps.employer_vesting, // Bump for vesting account PDA.
+        *ctx.accounts.vesting_authority = VestingAuthority {
+            authority: ctx.accounts.authority.key(),
+            token_mint: ctx.accounts.token_mint.key(),
+            treasury_account: ctx.accounts.treasury_account.key(),
+            vesting_id,
+            treasury_bump: ctx.bumps.treasury_account,
+            bump: ctx.bumps.vesting_authority,
         };
+
+        emit!(VestingAuthorityCreated {
+            authority: ctx.accounts.authority.key(),
+            vesting_id: ctx.accounts.vesting_authority.vesting_id.clone(),
+            token_mint: ctx.accounts.token_mint.key(),
+            created_at: Clock::get()?.unix_timestamp,
+        });
+
         Ok(())
     }
 
-    // Instruction to create an employee account for token vesting.
-    // This account tracks the vesting schedule and claimable tokens for an employee.
-    pub fn create_employee_vesting(
-        ctx: Context<CreateEmployeeVesting>,
-        start_time: i64, // Vesting start time (Unix timestamp).
-        end_time: i64, // Vesting end time (Unix timestamp).
-        cliff_time: i64, // Cliff time before tokens can be claimed (Unix timestamp).
-        total_amount: u64, // Total amount of tokens allocated to the employee.
+    // Creates a vesting schedule for a beneficiary
+    pub fn create_vesting_schedule(
+        ctx: Context<CreateVestingSchedule>,
+        start_time: i64,
+        end_time: i64,
+        cliff_time: i64,
+        total_amount: u64,
     ) -> Result<()> {
-        *ctx.accounts.employee_vesting = EmployeeVesting {
-            employee: ctx.accounts.employee.key(), // Employee's public key.
-            start_time, // Vesting start time.
-            end_time, // Vesting end time.
-            cliff_time, // Cliff time.
-            total_amount, // Total allocated tokens.
-            total_withdrawn: 0, // Initially, no tokens are withdrawn.
-            employer_vesting: ctx.accounts.employer_vesting.key(), // Associated vesting account.
-            bump: ctx.bumps.employee_vesting, // Bump for employee account PDA.
+        require!(end_time > start_time, ErrorCode::InvalidVestingPeriod);
+        require!(cliff_time >= start_time, ErrorCode::InvalidCliffTime);
+        require!(total_amount > 0, ErrorCode::ZeroAmount);
+        
+        *ctx.accounts.vesting_schedule = VestingSchedule {
+            beneficiary: ctx.accounts.beneficiary.key(),
+            vesting_authority: ctx.accounts.vesting_authority.key(),
+            total_amount,
+            total_withdrawn: 0,
+            start_time,
+            end_time,
+            cliff_time,
+            revoked_at: None,
+            bump: ctx.bumps.vesting_schedule,
         };
+
+        emit!(ScheduleCreated {
+            vesting_id: ctx.accounts.vesting_authority.vesting_id.clone(),
+            beneficiary: ctx.accounts.beneficiary.key(),
+            total_amount,
+            start_time,
+        });
+
         Ok(())
     }
 
-    // Instruction for an employee to claim vested tokens.
-    // Calculates the claimable amount based on the vesting schedule and transfers tokens.
-    pub fn claim_tokens(ctx: Context<ClaimTokens>, _company_name: String) -> Result<()> {
-        let employee_vesting = &mut ctx.accounts.employee_vesting;
-
-        // Ensure the current time is past the cliff time.
-        let now = Clock::get()?.unix_timestamp; // Current Unix timestamp.
-        require!(now >= employee_vesting.cliff_time, ErrorCode::UnavailableClaim);
-
-        let total_vesting_time = employee_vesting.end_time.saturating_sub(employee_vesting.start_time);
+    //  Intended to revoke a schedule
+    pub fn revoke_schedule(ctx: Context<RevokeSchedule>) -> Result<()> {
+        let vesting_schedule= &mut ctx.accounts.vesting_schedule;
         
-        // Ensure the vesting period is valid.
-        if total_vesting_time == 0 {
-          return Err(ErrorCode::InvalidVestingPeriod.into());
-        }
+        require!(vesting_schedule.revoked_at.is_none(), ErrorCode::AlreadyRevoked);
         
-        // Calculate the total vesting duration and time elapsed since the start.
-        let time_since_vesting = now.saturating_sub(employee_vesting.start_time);
+        vesting_schedule.revoked_at = Some(Clock::get()?.unix_timestamp);
 
-        // Calculate the vested amount based on elapsed time.
-        let vested_amount = if now >= employee_vesting.end_time {
-            // All tokens are claimable after the vesting period ends.
-            employee_vesting.total_amount
-        } else {
-            match employee_vesting.total_amount.checked_mul(time_since_vesting as u64) {
-                Some(result) => result / total_vesting_time as u64,
-                None => return Err(ErrorCode::CalculationOverflow.into()),
-            }
-        };
+        emit!(ScheduleRevoked {
+            vesting_id: ctx.accounts.vesting_authority.vesting_id.clone(),
+            beneficiary: vesting_schedule.beneficiary,
+            revoked_at: vesting_schedule.revoked_at.unwrap(),
+            unclaimed_amount: vesting_schedule
+                .total_amount
+                .checked_sub(vesting_schedule.total_withdrawn)
+                .ok_or(ErrorCode::CalculationOverflow)?,
+        });
 
-        // Calculate the claimable amount by subtracting already withdrawn tokens.
-        let claimable_amount = vested_amount.saturating_sub(employee_vesting.total_withdrawn);
-        require!(claimable_amount > 0, ErrorCode::ZeroClaim);
+        Ok(())
+    }
+
+    // Lets beneficiaries claim vested tokens
+    pub fn claim(ctx: Context<Claim>, _vesting_id: String) -> Result<()> {
+        let vesting_schedule = &mut ctx.accounts.vesting_schedule;
+        
+        require!(vesting_schedule.revoked_at.is_none(), ErrorCode::RevokedSchedule);
+
+        // Ensure the current time is past the cliff time and not revoked.
+        let now = Clock::get()?.unix_timestamp;
+        require!(now >= vesting_schedule.cliff_time, ErrorCode::UnavailableClaim);
+
+        let claimable_amount = vesting_schedule.claimable_amount(now)?;
 
         // Prepare CPI (Cross-Program Invocation) for transferring tokens.
         let cpi_program = ctx.accounts.token_program.to_account_info();
         let cpi_accounts = TransferChecked {
             from: ctx.accounts.treasury_account.to_account_info(),
             mint: ctx.accounts.token_mint.to_account_info(),
-            to: ctx.accounts.employee_token_account.to_account_info(),
+            to: ctx.accounts.beneficiary_token_account.to_account_info(),
             authority: ctx.accounts.treasury_account.to_account_info(),
         };
 
         // Define signer seeds for the treasury PDA.
         let seeds: &[&[&[u8]]] = &[&[
           b"vesting_treasury",
-          ctx.accounts.employer_vesting.company_name.as_ref(),
-          &[ctx.accounts.employer_vesting.treasury_bump]
+          ctx.accounts.vesting_authority.vesting_id.as_ref(),
+          &[ctx.accounts.vesting_authority.treasury_bump]
         ]];
 
         token_interface::transfer_checked(
@@ -107,149 +131,252 @@ pub mod vesting {
           ctx.accounts.token_mint.decimals
         )?;
 
-        // Update the total withdrawn amount in the employee account.
-        employee_vesting.total_withdrawn = employee_vesting.total_withdrawn.checked_add(claimable_amount).ok_or(ErrorCode::CalculationOverflow)?;
+        // Update the total withdrawn amount in the beneficiary account.
+        vesting_schedule.total_withdrawn = vesting_schedule.total_withdrawn.checked_add(claimable_amount).ok_or(ErrorCode::CalculationOverflow)?;
 
+        emit!(TokensClaimed {
+            beneficiary: *ctx.accounts.beneficiary.key,
+            amount: claimable_amount,
+            claimed_at: Clock::get()?.unix_timestamp,
+        });
+        
         Ok(())
     }
 }
 
-// Account struct for creating a vesting account.
 #[derive(Accounts)]
-#[instruction(company_name: String)]
-pub struct CreateEmployerVesting<'info> {
+#[instruction(vesting_id: String)]
+pub struct CreateVestingAuthority<'info> {
     #[account(mut)]
-    pub employer: Signer<'info>, // Employer creating the vesting account.
+    pub authority: Signer<'info>,
 
     #[account(
         init,
-        payer = employer,
-        space = ANCHOR_DISCRIMINATOR_SIZE + EmployerVesting::INIT_SPACE,
-        seeds = [b"employer_vesting", company_name.as_bytes()],
+        payer = authority,
+        space = ANCHOR_DISCRIMINATOR_SIZE + VestingAuthority::INIT_SPACE,
+        seeds = [b"vesting_authority", vesting_id.as_bytes()],
         bump
     )]
-    pub employer_vesting: Account<'info, EmployerVesting>, // PDA for the vesting account, tied to the company name.
+    pub vesting_authority: Account<'info, VestingAuthority>, // PDA for the vesting account.
 
     pub token_mint: InterfaceAccount<'info, Mint>, // SPL token mint to be distributed.
 
+    // The treasury account is a PDA controlled by the program, not by any external authority.
+    // Ensures tokens can only be distributed according to the program's logic.
     #[account(
         init, 
         token::mint = token_mint, 
         token::authority = treasury_account, 
-        // token::authority = employer_vesting, 
-        payer = employer, 
-        seeds = [b"vesting_treasury", company_name.as_bytes()], 
+        payer = authority, 
+        seeds = [b"vesting_treasury", vesting_id.as_bytes()], 
         bump
     )]
-    pub treasury_account: InterfaceAccount<'info, TokenAccount>, // PDA for the treasury token account, holding tokens for distribution.
+    pub treasury_account: InterfaceAccount<'info, TokenAccount>,
 
-    pub token_program: Interface<'info, TokenInterface>, // Token interface for managing SPL tokens.
-    pub system_program: Program<'info, System>, // System program for account initialization.
+    pub token_program: Interface<'info, TokenInterface>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-pub struct CreateEmployeeVesting<'info> {
+pub struct CreateVestingSchedule<'info> {
     #[account(mut)]
-    pub employer: Signer<'info>, // Employer allocating tokens to the employee.
+    pub authority: Signer<'info>, // Authority allocating tokens to the beneficiary.
 
-    pub employee: SystemAccount<'info>, // Employee receiving the tokens.
+    pub beneficiary: SystemAccount<'info>, // Beneficiary receiving the tokens.
 
     #[account(
-        has_one = employer,
+        has_one = authority,
     )]
-    pub employer_vesting: Account<'info, EmployerVesting>, // Vesting account associated with the employer.
+    pub vesting_authority: Account<'info, VestingAuthority>, // Vesting account associated with the authority.
 
     #[account(
         init,
-        payer = employer, 
-        space = ANCHOR_DISCRIMINATOR_SIZE + EmployeeVesting::INIT_SPACE,
-        seeds = [b"employee_vesting", employee.key().as_ref(), employer_vesting.key().as_ref()], 
+        payer = authority, 
+        space = ANCHOR_DISCRIMINATOR_SIZE + VestingSchedule::INIT_SPACE,
+        seeds = [b"vesting_schedule", beneficiary.key().as_ref(), vesting_authority.key().as_ref()], 
         bump
     )]
-    pub employee_vesting: Account<'info, EmployeeVesting>, // PDA for the employee's vesting account.
+    pub vesting_schedule: Account<'info, VestingSchedule>, // PDA for the beneficiary's vesting account.
 
-    pub system_program: Program<'info, System>, // System program for account initialization.
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-#[instruction(company_name: String)]
-pub struct ClaimTokens<'info> {
+pub struct RevokeSchedule<'info> {
     #[account(mut)]
-    pub employee: Signer<'info>, // Employee claiming the vested tokens.
+    pub authority: Signer<'info>, // Authority revoking the schedule.
 
     #[account(
         mut,
-        seeds = [b"employee_vesting", employee.key().as_ref(), employer_vesting.key().as_ref()], 
-        has_one = employee,
-        has_one = employer_vesting,
-        bump = employee_vesting.bump,
+        has_one = authority,
+        seeds = [b"vesting_authority", vesting_authority.vesting_id.as_bytes()],
+        bump = vesting_authority.bump
     )]
-    pub employee_vesting: Account<'info, EmployeeVesting>, // Employee's vesting account, ensuring correct employee and vesting account.
-
-    pub token_mint: InterfaceAccount<'info, Mint>, // SPL token mint being claimed.
+    pub vesting_authority: Account<'info, VestingAuthority>,
 
     #[account(
         mut,
-        seeds = [b"employer_vesting", company_name.as_bytes()],
+        has_one = vesting_authority,
+        seeds = [b"vesting_schedule", vesting_schedule.beneficiary.as_ref(), vesting_authority.key().as_ref()],
+        bump = vesting_schedule.bump
+    )]
+    pub vesting_schedule: Account<'info, VestingSchedule>,
+}
+
+#[derive(Accounts)]
+#[instruction(vesting_id: String)]
+pub struct Claim<'info> {
+    #[account(mut)]
+    pub beneficiary: Signer<'info>,
+
+    #[account(
+        mut,
+        // Ensure the signer is the beneficiary
+        has_one = beneficiary,
+        // Link to vesting authority
+        has_one = vesting_authority,
+        // PDA verification 
+        seeds = [b"vesting_schedule", beneficiary.key().as_ref(), vesting_authority.key().as_ref()], 
+        bump = vesting_schedule.bump,
+    )]
+    pub vesting_schedule: Account<'info, VestingSchedule>, // Beneficiary's vesting account, ensuring correct beneficiary and vesting authority.
+
+    pub token_mint: InterfaceAccount<'info, Mint>,
+
+    #[account(
+        mut,
         has_one = treasury_account,
         has_one = token_mint,
-        bump = employer_vesting.bump,
+        seeds = [b"vesting_authority", vesting_id.as_bytes()],
+        bump = vesting_authority.bump,
     )]
-    pub employer_vesting: Account<'info, EmployerVesting>, // Employer's vesting account, ensuring correct treasury and mint.
+    pub vesting_authority: Account<'info, VestingAuthority>, // Authority's vesting account, ensuring correct treasury and mint.
 
     #[account(mut)]
     pub treasury_account: InterfaceAccount<'info, TokenAccount>, // Treasury token account holding tokens for distribution.
 
     #[account(
         init_if_needed,
-        payer = employee,
+        payer = beneficiary,
         associated_token::mint = token_mint,
-        associated_token::authority = employee, 
+        associated_token::authority = beneficiary, 
         associated_token::token_program = token_program, 
     )]
-    pub employee_token_account: InterfaceAccount<'info, TokenAccount>, // Employee's token account to receive the claimed tokens.
+    pub beneficiary_token_account: InterfaceAccount<'info, TokenAccount>, // Beneficiary's token account to receive the claimed tokens.
 
     pub token_program: Interface<'info, TokenInterface>, // Token program for managing SPL tokens.
     pub associated_token_program: Program<'info, AssociatedToken>, // Associated token program for creating token accounts.
-    pub system_program: Program<'info, System>, // System program for account initialization.
+    pub system_program: Program<'info, System>,
 }
 
+// Tracks the authority who manages the vesting, the token mint, and the treasury account.
 #[account]
 #[derive(InitSpace, Debug)]
-pub struct EmployerVesting {
-    pub employer: Pubkey, // Employer who owns this vesting account.
+pub struct VestingAuthority {
+    pub authority: Pubkey, // Authority who owns this vesting account.
     #[max_len(30)]
-    pub company_name: String, // Name of the company associated with this vesting account.
+    pub vesting_id: String,
     pub token_mint: Pubkey, // SPL token mint being distributed.
     pub treasury_account: Pubkey, // Treasury token account holding tokens for distribution.
-    pub treasury_bump: u8, // Bump seed for the treasury PDA.
-    pub bump: u8, // Bump seed for the vesting account PDA.
+    pub treasury_bump: u8,
+    pub bump: u8,
 }
 
+// Tracks the beneficiary's vesting schedule details.
 #[account]
 #[derive(InitSpace, Debug)]
-pub struct EmployeeVesting {
-    pub employee: Pubkey, // Employee receiving the vested tokens.
-    pub employer_vesting: Pubkey, // Associated vesting account.
-    pub total_amount: u64, // Total tokens allocated to the employee.
-    pub total_withdrawn: u64, // Total tokens already claimed by the employee.
+pub struct VestingSchedule {
+    pub beneficiary: Pubkey, // Beneficiary receiving the vested tokens.
+    pub vesting_authority: Pubkey, // Associated vesting authority account.
+    pub total_amount: u64, // Total tokens allocated to the beneficiary.
+    pub total_withdrawn: u64, // Total tokens already claimed by the beneficiary.
     pub start_time: i64, // Vesting start time (Unix timestamp).
     pub end_time: i64, // Vesting end time (Unix timestamp).
     pub cliff_time: i64, // Cliff time before tokens can be claimed (Unix timestamp).
-    pub bump: u8, // Bump seed for the employee account PDA.
+    pub revoked_at: Option<i64>, // Revoked time (if revoked - Unix timestamp)
+    pub bump: u8,
+}
+
+impl VestingSchedule {
+    // Calculates how many tokens a beneficiary can claim at the current time based on linear vesting.
+    pub fn claimable_amount(&self, now: i64) -> Result<u64> {
+        let vesting_duration = self.end_time.saturating_sub(self.start_time);
+        if vesting_duration == 0 {
+            return Err(ErrorCode::InvalidVestingPeriod.into());
+        }
+
+        let time_elapsed = now.saturating_sub(self.start_time);
+        let vested_amount = if now >= self.end_time {
+            // All tokens are claimable after the vesting period ends.
+            self.total_amount
+        } else {
+            self.total_amount
+                .checked_mul(time_elapsed as u64)
+                .ok_or(ErrorCode::CalculationOverflow)?
+                / (vesting_duration as u64)
+        };
+
+        let claimable_amount = vested_amount.saturating_sub(self.total_withdrawn);
+        require!(claimable_amount > 0, ErrorCode::ZeroClaim);
+
+        Ok(claimable_amount)
+    }
+}
+
+#[event]
+pub struct VestingAuthorityCreated {
+    pub authority: Pubkey,
+    pub vesting_id: String,
+    pub token_mint: Pubkey,
+    pub created_at: i64,
+}
+
+#[event]
+pub struct ScheduleCreated {
+    pub vesting_id: String,
+    pub beneficiary: Pubkey,
+    pub total_amount: u64,
+    pub start_time: i64,
+}
+
+#[event]
+pub struct ScheduleRevoked {
+    pub vesting_id: String,
+    pub beneficiary: Pubkey,
+    pub revoked_at: i64,
+    pub unclaimed_amount: u64,
+}
+
+#[event]
+pub struct TokensClaimed {
+    pub beneficiary: Pubkey,
+    pub amount: u64,
+    pub claimed_at: i64,
 }
 
 #[error_code]
 pub enum ErrorCode {
-    #[msg("Claim not available yet")]
-    UnavailableClaim, // Error when tokens are claimed before the cliff time.
-
-    #[msg("Invalid vesting period")]
-    InvalidVestingPeriod, // Error when the vesting period is invalid (e.g., start time equals end time).
-
     #[msg("Calculation overflow")]
-    CalculationOverflow, // Error when a calculation overflows.
+    CalculationOverflow,
+
+    #[msg("Zero amount")]
+    ZeroAmount,
 
     #[msg("No tokens to claim")]
-    ZeroClaim, // Error when there are no tokens available to claim.
+    ZeroClaim,
+
+    #[msg("Claim not available yet")]
+    UnavailableClaim,
+
+    #[msg("Invalid vesting period")]
+    InvalidVestingPeriod,
+
+    #[msg("Invalid cliff time")]
+    InvalidCliffTime,
+
+    #[msg("Schedule has been revoked")]
+    RevokedSchedule,
+    
+    #[msg("Schedule has already been revoked")]
+    AlreadyRevoked,
 }

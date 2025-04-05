@@ -1,6 +1,6 @@
 # Solana Token Vesting dApp
 
-A decentralized token vesting application built on Solana using the Anchor framework. This dApp allows organizations to create vesting schedules for employees or stakeholders, where tokens are gradually unlocked over time according to predefined parameters.
+A decentralized token vesting application built on Solana using the Anchor framework. This dApp allows authorities to create vesting schedules for beneficiaries, where tokens are gradually unlocked over time according to predefined parameters.
 
 ## Features
 
