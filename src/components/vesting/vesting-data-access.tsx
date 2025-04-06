@@ -18,51 +18,51 @@ import {
   getVestingProgramId,
 } from "../../../anchor/src/vesting-exports";
 
-export interface CreateEmployerVestingAccountArgs {
-  companyName: string;
+export interface CreateVestingAuthorityArgs {
+  vestingId: string;
   tokenMint: string;
 }
 
-export interface CreateEmployeeVestingAccountArgs {
-  employee: string;
-  employerVesting: string;
+export interface CreateVestingScheduleArgs {
+  beneficiary: string;
+  vestingAuthority: string;
   startTime: number;
   endTime: number;
   cliffTime: number;
   totalAmount: number;
 }
 
-export interface ClaimTokensArgs {
-  companyName: string;
+export interface ClaimArgs {
+  vestingId: string;
 }
 
-export const findEmployerVestingPDA = (
-  companyName: string,
+export const findVestingAuthorityPda = (
+  vestingId: string,
   programId: PublicKey
 ) => {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("employer_vesting"), Buffer.from(companyName)],
+    [Buffer.from("vesting_authority"), Buffer.from(vestingId)],
     programId
   );
 };
 
-export const findTreasuryPDA = (companyName: string, programId: PublicKey) => {
+export const findTreasuryPda = (vestingId: string, programId: PublicKey) => {
   return PublicKey.findProgramAddressSync(
-    [Buffer.from("vesting_treasury"), Buffer.from(companyName)],
+    [Buffer.from("vesting_treasury"), Buffer.from(vestingId)],
     programId
   );
 };
 
-export const findEmployeeVestingPDA = (
-  employee: PublicKey,
-  employerVesting: PublicKey,
+export const findVestingSchedulePda = (
+  beneficiary: PublicKey,
+  vestingAuthority: PublicKey,
   programId: PublicKey
 ) => {
   return PublicKey.findProgramAddressSync(
     [
-      Buffer.from("employee_vesting"),
-      employee.toBuffer(),
-      employerVesting.toBuffer(),
+      Buffer.from("vesting_schedule"),
+      beneficiary.toBuffer(),
+      vestingAuthority.toBuffer(),
     ],
     programId
   );
@@ -72,6 +72,7 @@ export function useVestingProgram() {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
   const { cluster } = useCluster();
+
   const provider = useAnchorProvider();
   const queryClient = useQueryClient();
 
@@ -94,13 +95,13 @@ export function useVestingProgram() {
 
   const accounts = useQuery({
     queryKey: ["vesting", "all", { cluster }],
-    queryFn: () => program.account.employerVesting.all(),
+    queryFn: () => program.account.vestingAuthority.all(),
   });
 
-  // Query to fetch all employer vesting accounts for the connected wallet
-  const getEmployerVestingAccounts = useQuery({
+  // Query to fetch all authority vesting accounts for the connected wallet
+  const getVestingAuthorityAccounts = useQuery({
     queryKey: [
-      "employerVesting",
+      "vestingAuthority",
       "all",
       { cluster, publicKey: publicKey?.toString() },
     ],
@@ -108,8 +109,8 @@ export function useVestingProgram() {
       if (!publicKey) return [];
 
       try {
-        // Fetch all accounts of type EmployerVesting where employer = publicKey
-        const accounts = await program.account.employerVesting.all([
+        // Fetch all accounts of type VestingAuthority where authority = publicKey
+        const accounts = await program.account.vestingAuthority.all([
           {
             memcmp: {
               offset: ANCHOR_DISCRIMINATOR_SIZE,
@@ -123,17 +124,17 @@ export function useVestingProgram() {
           ...account.account,
         }));
       } catch (error) {
-        console.error("Error fetching employer vesting accounts:", error);
+        console.error("Error fetching vesting authority accounts:", error);
         return [];
       }
     },
     enabled: !!publicKey && !!provider,
   });
 
-  // Query to fetch all employee vesting accounts for the connected wallet (as an employee)
-  const getEmployeeVestingAccounts = useQuery({
+  // Query to fetch all beneficiary vesting accounts for the connected wallet (as a beneficiary)
+  const getVestingScheduleAccounts = useQuery({
     queryKey: [
-      "employeeVesting",
+      "vestingSchedule",
       "all",
       { cluster, publicKey: publicKey?.toString() },
     ],
@@ -141,8 +142,8 @@ export function useVestingProgram() {
       if (!publicKey) return [];
 
       try {
-        // Fetch all accounts of type EmployeeVesting where employee = publicKey
-        const accounts = await program.account.employeeVesting.all([
+        // Fetch all accounts of type VestingSchedule where beneficiary = publicKey
+        const accounts = await program.account.vestingSchedule.all([
           {
             memcmp: {
               offset: ANCHOR_DISCRIMINATOR_SIZE,
@@ -156,51 +157,51 @@ export function useVestingProgram() {
           ...account.account,
         }));
       } catch (error) {
-        console.error("Error fetching employee vesting accounts:", error);
+        console.error("Error fetching beneficiary vesting accounts:", error);
         return [];
       }
     },
     enabled: !!publicKey && !!provider,
   });
 
-  const createEmployerVestingAccount = useMutation<
+  const createVestingAuthorityAccount = useMutation<
     string,
     Error,
-    CreateEmployerVestingAccountArgs
+    CreateVestingAuthorityArgs
   >({
-    mutationKey: ["employer-vesting", "create", { cluster }],
-    mutationFn: async ({ companyName, tokenMint }) => {
+    mutationKey: ["vesting-authority", "create", { cluster }],
+    mutationFn: async ({ vestingId, tokenMint }) => {
       try {
         return program.methods
-          .createEmployerVesting(companyName)
+          .createVestingAuthority(vestingId)
           .accounts({
             tokenMint: new PublicKey(tokenMint),
             tokenProgram: TOKEN_PROGRAM_ID,
           })
           .rpc();
       } catch (error) {
-        console.error("Error creating employer vesting account:", error);
+        console.error("Error creating authority vesting account:", error);
         throw error;
       }
     },
     onSuccess: (signature) => {
       transactionToast(signature);
-      toast.success("Employer vesting account created successfully!");
-      return queryClient.invalidateQueries({ queryKey: ["employer-vesting"] });
+      toast.success("Vesting authority account created successfully!");
+      return queryClient.invalidateQueries({ queryKey: ["vesting-authority"] });
     },
     onError: (error) =>
-      toast.error(`Failed to create employer vesting account: ${error}`),
+      toast.error(`Failed to create vesting authority account: ${error}`),
   });
 
-  const createEmployeeVestingAccount = useMutation<
+  const createVestingScheduleAccount = useMutation<
     string,
     Error,
-    CreateEmployeeVestingAccountArgs
+    CreateVestingScheduleArgs
   >({
-    mutationKey: ["employee-vesting", "create", { cluster }],
+    mutationKey: ["vesting-schedule", "create", { cluster }],
     mutationFn: async ({
-      employee,
-      employerVesting,
+      beneficiary,
+      vestingAuthority,
       startTime,
       endTime,
       cliffTime,
@@ -208,39 +209,39 @@ export function useVestingProgram() {
     }) => {
       try {
         return program.methods
-          .createEmployeeVesting(
+          .createVestingSchedule(
             new BN(startTime),
             new BN(endTime),
             new BN(cliffTime),
             new BN(totalAmount)
           )
           .accounts({
-            employee,
-            employerVesting,
+            beneficiary,
+            vestingAuthority,
           })
           .rpc();
       } catch (error) {
-        console.error("Error creating employee vesting account:", error);
+        console.error("Error creating vesting schedule account:", error);
         throw error;
       }
     },
     onSuccess: (signature) => {
       transactionToast(signature);
-      toast.success("Employee vesting account created successfully!");
-      return queryClient.invalidateQueries({ queryKey: ["employer-vesting"] });
+      toast.success("Vesting schedule account created successfully!");
+      return queryClient.invalidateQueries({ queryKey: ["vesting-authority"] });
     },
     onError: (error) =>
-      toast.error(`Failed to create employee vesting account: ${error}`),
+      toast.error(`Failed to create vesting schedule account: ${error}`),
   });
 
-  const claimTokens = useMutation<string, Error, ClaimTokensArgs>({
-    mutationKey: ["employee-vesting", "create", { cluster }],
-    mutationFn: async ({ companyName }) => {
+  const claimTokens = useMutation<string, Error, ClaimArgs>({
+    mutationKey: ["vesting-schedule", "claim", { cluster }],
+    mutationFn: async ({ vestingId }) => {
       if (!publicKey) throw new Error("Wallet not connected");
 
       try {
         return program.methods
-          .claimTokens(companyName)
+          .claim(vestingId)
           .accounts({
             tokenProgram: TOKEN_PROGRAM_ID,
           })
@@ -253,9 +254,9 @@ export function useVestingProgram() {
     onSuccess: (signature) => {
       transactionToast(signature);
       toast.success("Tokens claimed successfully!");
-      return queryClient.invalidateQueries({ queryKey: ["employee-vesting"] });
+      return queryClient.invalidateQueries({ queryKey: ["vesting-schedule"] });
     },
-    onError: (error) => toast.error(`Failed to claim tokens: ${error}`),
+    onError: (error) => toast.error(`Failed to claim tokens: ${error.message}`),
   });
 
   return {
@@ -263,69 +264,69 @@ export function useVestingProgram() {
     programId,
     getProgramAccount,
     accounts,
-    getEmployerVestingAccounts,
-    getEmployeeVestingAccounts,
-    createEmployerVestingAccount,
-    createEmployeeVestingAccount,
+    getVestingAuthorityAccounts,
+    getVestingScheduleAccounts,
+    createVestingAuthorityAccount,
+    createVestingScheduleAccount,
     claimTokens,
   };
 }
 
-export function useEmployerVestingAccount(
-  employerVestingKey: PublicKey | undefined
+export function useVestingAuthorityAccount(
+  vestingAuthorityKey: PublicKey | undefined
 ) {
   const { cluster } = useCluster();
   const { program } = useVestingProgram();
   const provider = useAnchorProvider();
 
   const accountQuery = useQuery({
-    queryKey: ["vesting", "fetch", { cluster, employerVestingKey }],
+    queryKey: ["vesting", "fetch", { cluster, vestingAuthorityKey }],
     queryFn: () => {
-      if (!employerVestingKey) {
-        throw new Error("employerVestingKey is undefined");
+      if (!vestingAuthorityKey) {
+        throw new Error("vestingAuthorityKey is undefined");
       }
-      return program.account.employerVesting.fetch(employerVestingKey);
+      return program.account.vestingAuthority.fetch(vestingAuthorityKey);
     },
   });
 
-  // Query to fetch the employer vesting account details
-  const employerVestingQuery = useQuery({
+  // Query to fetch the authority vesting account details
+  const vestingAuthorityQuery = useQuery({
     queryKey: [
-      "employerVesting",
+      "vestingAuthority",
       "fetch",
-      { cluster, employerVestingKey: employerVestingKey?.toString() },
+      { cluster, vestingAuthorityKey: vestingAuthorityKey?.toString() },
     ],
     queryFn: async () => {
-      if (!employerVestingKey) return null;
+      if (!vestingAuthorityKey) return null;
 
       try {
-        const account = await program.account.employerVesting.fetch(
-          employerVestingKey
+        const account = await program.account.vestingAuthority.fetch(
+          vestingAuthorityKey
         );
         return account;
       } catch (error) {
-        console.error("Error fetching employer vesting:", error);
+        console.error("Error fetching authority vesting:", error);
         return null;
       }
     },
-    enabled: !!employerVestingKey && !!provider,
+    enabled: !!vestingAuthorityKey && !!provider,
   });
 
-  // Query to fetch all employee vesting accounts for this employer
-  const employeeVestingsQuery = useQuery({
+  // Query to fetch all beneficiary vesting accounts for this authority
+  const vestingSchedulesQuery = useQuery({
     queryKey: [
-      "employee-vestings",
-      { cluster, employerVestingKey: employerVestingKey?.toString() },
+      "beneficiary-vestings",
+      { cluster, vestingAuthorityKey: vestingAuthorityKey?.toString() },
     ],
     queryFn: async () => {
-      if (!employerVestingKey) return [];
+      if (!vestingAuthorityKey) return [];
 
       try {
-        const accounts = await program.account.employeeVesting.all([
+        const accounts = await program.account.vestingSchedule.all([
           {
             memcmp: {
               offset: ANCHOR_DISCRIMINATOR_SIZE + 32,
-              bytes: employerVestingKey.toBase58(),
+              bytes: vestingAuthorityKey.toBase58(),
             },
           },
         ]);
@@ -335,51 +336,52 @@ export function useEmployerVestingAccount(
           ...account.account,
         }));
       } catch (error) {
-        console.error("Error fetching employee vestings:", error);
+        console.error("Error fetching beneficiary vestings:", error);
         return [];
       }
     },
-    enabled: !!employerVestingKey && !!provider && !!employerVestingQuery.data,
+    enabled:
+      !!vestingAuthorityKey && !!provider && !!vestingAuthorityQuery.data,
   });
 
   return {
     accountQuery,
-    employerVestingQuery,
-    employeeVestingsQuery,
+    vestingAuthorityQuery,
+    vestingSchedulesQuery,
   };
 }
 
-export function useEmployeeVestingAccount(
-  employeeVestingKey: PublicKey | undefined
+export function useVestingScheduleAccount(
+  vestingBeneficiaryKey: PublicKey | undefined
 ) {
   const { cluster } = useCluster();
   const { program } = useVestingProgram();
   const provider = useAnchorProvider();
 
-  // Query to fetch the employee vesting account details
-  const employeeVestingQuery = useQuery({
+  // Query to fetch the beneficiary vesting account details
+  const vestingScheduleQuery = useQuery({
     queryKey: [
-      "employeeVesting",
+      "vestingSchedule",
       "fetch",
-      { cluster, employeeVestingKey: employeeVestingKey?.toString() },
+      { cluster, vestingBeneficiaryKey: vestingBeneficiaryKey?.toString() },
     ],
     queryFn: async () => {
-      if (!employeeVestingKey) return null;
+      if (!vestingBeneficiaryKey) return null;
 
       try {
-        const account = await program.account.employeeVesting.fetch(
-          employeeVestingKey
+        const account = await program.account.vestingSchedule.fetch(
+          vestingBeneficiaryKey
         );
         return account;
       } catch (error) {
-        console.error("Error fetching employee vesting:", error);
+        console.error("Error fetching beneficiary vesting:", error);
         return null;
       }
     },
-    enabled: !!employeeVestingKey && !!provider,
+    enabled: !!vestingBeneficiaryKey && !!provider,
   });
 
   return {
-    employeeVestingQuery,
+    vestingScheduleQuery,
   };
 }

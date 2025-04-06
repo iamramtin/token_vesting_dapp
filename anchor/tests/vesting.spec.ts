@@ -205,18 +205,15 @@ describe("Vesting Smart Contract Tests", () => {
   });
 
   it("allows beneficiary to claim vested tokens after cliff time", async () => {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
     // Simulate time passing by advancing the clock
     const currentClock = await context.banksClient.getClock();
-
     context.setClock(
       new Clock(
         currentClock.slot,
         currentClock.epochStartTimestamp,
         currentClock.epoch,
         currentClock.leaderScheduleEpoch,
-        BigInt(claimTime)
+        BigInt(claimTime) // Advance to claimTime
       )
     );
 

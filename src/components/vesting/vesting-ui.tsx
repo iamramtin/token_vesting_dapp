@@ -2,19 +2,19 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { ellipsify } from "../ui/ui-layout";
 import { ExplorerLink } from "../cluster/cluster-ui";
 import {
-  useEmployeeVestingAccount,
-  useEmployerVestingAccount,
+  useVestingScheduleAccount,
+  useVestingAuthorityAccount,
   useVestingProgram,
 } from "./vesting-data-access";
 
 export function VestingCreate() {
-  const { createEmployerVestingAccount } = useVestingProgram();
+  const { createVestingAuthorityAccount } = useVestingProgram();
   const { publicKey } = useWallet();
-  const [companyName, setCompanyName] = useState("");
+  const [vestingId, setVestingId] = useState("");
   const [tokenMint, setTokenMint] = useState("");
   const [isValidMint, setIsValidMint] = useState(true);
 
@@ -34,12 +34,12 @@ export function VestingCreate() {
   }, [tokenMint]);
 
   const isFormValid =
-    companyName.length > 0 && (tokenMint.length === 0 || isValidMint);
+    vestingId.length > 0 && (tokenMint.length === 0 || isValidMint);
 
   const handleSubmit = () => {
     if (publicKey && isFormValid) {
-      createEmployerVestingAccount.mutateAsync({
-        companyName,
+      createVestingAuthorityAccount.mutateAsync({
+        vestingId,
         tokenMint,
       });
     }
@@ -53,13 +53,13 @@ export function VestingCreate() {
     <div className="flex flex-col gap-4">
       <div className="form-control">
         <label className="label">
-          <span className="label-text">Company Name</span>
+          <span className="label-text">Vesting ID</span>
         </label>
         <input
           type="text"
-          placeholder="Company Name"
-          value={companyName}
-          onChange={(e) => setCompanyName(e.target.value)}
+          placeholder="Vesting ID"
+          value={vestingId}
+          onChange={(e) => setVestingId(e.target.value)}
           className="input input-bordered w-full"
         />
       </div>
@@ -89,10 +89,10 @@ export function VestingCreate() {
       <button
         className="btn btn-primary mt-4"
         onClick={handleSubmit}
-        disabled={createEmployerVestingAccount.isPending || !isFormValid}
+        disabled={createVestingAuthorityAccount.isPending || !isFormValid}
       >
         Create New Vesting Account
-        {createEmployerVestingAccount.isPending && (
+        {createVestingAuthorityAccount.isPending && (
           <span className="loading loading-spinner loading-sm ml-2"></span>
         )}
       </button>
@@ -101,40 +101,40 @@ export function VestingCreate() {
 }
 
 function VestingCard({ account }: { account: PublicKey }) {
-  const { accountQuery } = useEmployerVestingAccount(account);
-  const { createEmployeeVestingAccount } = useVestingProgram();
+  const { accountQuery } = useVestingAuthorityAccount(account);
+  const { createVestingScheduleAccount } = useVestingProgram();
 
   const now = Math.floor(Date.now() / 1000);
-  const [employee, setEmployee] = useState("");
+  const [beneficiary, setBeneficiary] = useState("");
   const [startTime, setStartTime] = useState(now);
-  const [endTime, setEndTime] = useState(now + 60 * 60 * 24 * 365); // 1 year later
-  const [cliffTime, setCliffTime] = useState(now + 60 * 60 * 24 * 30); // 1 month later
+  const [endTime, setEndTime] = useState(now + 60 * 3); // 3 minutes later
+  const [cliffTime, setCliffTime] = useState(now + 60); // 1 minute later
   const [totalAmount, setTotalAmount] = useState(0);
-  const [isValidEmployee, setIsValidEmployee] = useState(true);
+  const [isValidSchedule, setIsValidSchedule] = useState(true);
 
-  // Validate employee address
+  // Validate beneficiary address
   useEffect(() => {
-    if (!employee) {
-      setIsValidEmployee(true);
+    if (!beneficiary) {
+      setIsValidSchedule(true);
       return;
     }
 
     try {
-      new PublicKey(employee);
-      setIsValidEmployee(true);
+      new PublicKey(beneficiary);
+      setIsValidSchedule(true);
     } catch (error) {
-      setIsValidEmployee(false);
+      setIsValidSchedule(false);
     }
-  }, [employee]);
+  }, [beneficiary]);
 
-  const companyName = useMemo(
-    () => accountQuery.data?.companyName ?? "",
-    [accountQuery.data?.companyName]
+  const vestingId = useMemo(
+    () => accountQuery.data?.vestingId ?? "",
+    [accountQuery.data?.vestingId]
   );
 
   const isFormValid =
-    isValidEmployee &&
-    employee &&
+    isValidSchedule &&
+    beneficiary &&
     startTime &&
     endTime &&
     cliffTime &&
@@ -142,12 +142,12 @@ function VestingCard({ account }: { account: PublicKey }) {
     endTime > startTime &&
     cliffTime >= startTime;
 
-  const handleCreateEmployeeVesting = () => {
+  const handleCreateVestingSchedule = () => {
     if (!isFormValid) return;
 
-    createEmployeeVestingAccount.mutateAsync({
-      employee,
-      employerVesting: account.toString(),
+    createVestingScheduleAccount.mutateAsync({
+      beneficiary,
+      vestingAuthority: account.toString(),
       startTime,
       endTime,
       cliffTime,
@@ -160,24 +160,24 @@ function VestingCard({ account }: { account: PublicKey }) {
   ) : (
     <div className="card card-bordered border-base-300 border-2 bg-base-100">
       <div className="card-body">
-        <h2 className="card-title text-xl">{companyName}</h2>
+        <h2 className="card-title text-xl">{vestingId}</h2>
 
-        <div className="divider">Employee Vesting</div>
+        <div className="divider">Vesting Schedule</div>
 
         <div className="form-control">
           <label className="label">
-            <span className="label-text">Employee Address</span>
+            <span className="label-text">Beneficiary Address</span>
           </label>
           <input
             type="text"
-            placeholder="Employee Address"
-            value={employee}
-            onChange={(e) => setEmployee(e.target.value)}
+            placeholder="Beneficiary Address"
+            value={beneficiary}
+            onChange={(e) => setBeneficiary(e.target.value)}
             className={`input input-bordered w-full ${
-              !isValidEmployee ? "input-error" : ""
+              !isValidSchedule ? "input-error" : ""
             }`}
           />
-          {!isValidEmployee && (
+          {!isValidSchedule && (
             <label className="label">
               <span className="label-text-alt text-error">Invalid address</span>
             </label>
@@ -241,11 +241,11 @@ function VestingCard({ account }: { account: PublicKey }) {
         <div className="card-actions justify-end mt-4">
           <button
             className="btn btn-primary"
-            onClick={handleCreateEmployeeVesting}
-            disabled={createEmployeeVestingAccount.isPending || !isFormValid}
+            onClick={handleCreateVestingSchedule}
+            disabled={createVestingScheduleAccount.isPending || !isFormValid}
           >
-            Create Employee Vesting
-            {createEmployeeVestingAccount.isPending && (
+            Create Vesting Schedule
+            {createVestingScheduleAccount.isPending && (
               <span className="loading loading-spinner loading-sm ml-2"></span>
             )}
           </button>
@@ -255,19 +255,19 @@ function VestingCard({ account }: { account: PublicKey }) {
   );
 }
 
-// New component for employer dashboard
-export function EmployerVestingDashboard({ accounts }: { accounts: any[] }) {
+// New component for authority dashboard
+export function VestingAuthorityDashboard({ accounts }: { accounts: any[] }) {
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Your Employer Vesting Accounts</h2>
+      <h2 className="text-2xl font-bold">Your Vesting Authority Accounts</h2>
       {accounts.length === 0 ? (
         <div className="alert alert-info">
-          <span>No employer vesting accounts found.</span>
+          <span>No vesting authority accounts found.</span>
         </div>
       ) : (
         <div className="grid md:grid-cols-1 gap-6">
           {accounts.map((account) => (
-            <EmployerVestingDetail
+            <VestingAuthorityDetail
               key={account.publicKey.toString()}
               accountKey={new PublicKey(account.publicKey)}
             />
@@ -278,21 +278,21 @@ export function EmployerVestingDashboard({ accounts }: { accounts: any[] }) {
   );
 }
 
-function EmployerVestingDetail({ accountKey }: { accountKey: PublicKey }) {
-  const { employerVestingQuery, employeeVestingsQuery } =
-    useEmployerVestingAccount(accountKey);
+function VestingAuthorityDetail({ accountKey }: { accountKey: PublicKey }) {
+  const { vestingAuthorityQuery, vestingSchedulesQuery } =
+    useVestingAuthorityAccount(accountKey);
 
-  const employerVesting = employerVestingQuery.data;
-  const employeeVestings = employeeVestingsQuery.data || [];
+  const vestingAuthority = vestingAuthorityQuery.data;
+  const vestingSchedules = vestingSchedulesQuery.data || [];
 
-  if (employerVestingQuery.isLoading) {
+  if (vestingAuthorityQuery.isLoading) {
     return <span className="loading loading-spinner loading-lg"></span>;
   }
 
   return (
     <div className="card bg-base-100 shadow-xl">
       <div className="card-body">
-        <h2 className="card-title text-xl">{employerVesting?.companyName}</h2>
+        <h2 className="card-title text-xl">{vestingAuthority?.vestingId}</h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
           <div>
@@ -309,8 +309,8 @@ function EmployerVestingDetail({ accountKey }: { accountKey: PublicKey }) {
             <p className="text-sm opacity-70">Token Mint</p>
             <p className="font-mono text-xs">
               <ExplorerLink
-                path={`account/${employerVesting?.tokenMint}`}
-                label={ellipsify(employerVesting?.tokenMint?.toString() || "")}
+                path={`account/${vestingAuthority?.tokenMint}`}
+                label={ellipsify(vestingAuthority?.tokenMint?.toString() || "")}
               />
             </p>
           </div>
@@ -319,25 +319,25 @@ function EmployerVestingDetail({ accountKey }: { accountKey: PublicKey }) {
             <p className="text-sm opacity-70">Treasury Account</p>
             <p className="font-mono text-xs">
               <ExplorerLink
-                path={`account/${employerVesting?.treasuryAccount}`}
+                path={`account/${vestingAuthority?.treasuryAccount}`}
                 label={ellipsify(
-                  employerVesting?.treasuryAccount?.toString() || ""
+                  vestingAuthority?.treasuryAccount?.toString() || ""
                 )}
               />
             </p>
           </div>
         </div>
 
-        <div className="divider">Employees</div>
+        <div className="divider">Beneficiaries</div>
 
-        {employeeVestingsQuery.isLoading ? (
+        {vestingSchedulesQuery.isLoading ? (
           <span className="loading loading-spinner loading-md"></span>
-        ) : employeeVestings.length > 0 ? (
+        ) : vestingSchedules.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="table table-zebra w-full">
               <thead>
                 <tr>
-                  <th>Employee</th>
+                  <th>Beneficiary</th>
                   <th>Amount</th>
                   <th>Vested</th>
                   <th>Withdrawn</th>
@@ -345,7 +345,7 @@ function EmployerVestingDetail({ accountKey }: { accountKey: PublicKey }) {
                 </tr>
               </thead>
               <tbody>
-                {employeeVestings.map((vestingAccount) => {
+                {vestingSchedules.map((vestingAccount) => {
                   const now = Math.floor(Date.now() / 1000);
                   const totalTime =
                     Number(vestingAccount.endTime) -
@@ -372,8 +372,10 @@ function EmployerVestingDetail({ accountKey }: { accountKey: PublicKey }) {
                     <tr key={vestingAccount.publicKey.toString()}>
                       <td className="font-mono text-xs">
                         <ExplorerLink
-                          path={`account/${vestingAccount.employee}`}
-                          label={ellipsify(vestingAccount.employee.toString())}
+                          path={`account/${vestingAccount.beneficiary}`}
+                          label={ellipsify(
+                            vestingAccount.beneficiary.toString()
+                          )}
                         />
                       </td>
                       <td>{vestingAccount.totalAmount.toString()}</td>
@@ -422,7 +424,7 @@ function EmployerVestingDetail({ accountKey }: { accountKey: PublicKey }) {
           </div>
         ) : (
           <div className="alert alert-info">
-            <span>No employees added to this vesting account yet.</span>
+            <span>No beneficiaries added to this vesting account yet.</span>
           </div>
         )}
 
@@ -434,25 +436,24 @@ function EmployerVestingDetail({ accountKey }: { accountKey: PublicKey }) {
   );
 }
 
-// New component for employee dashboard
-export function EmployeeVestingDashboard({ accounts }: { accounts: any[] }) {
-  const { programId, claimTokens } = useVestingProgram();
+// New component for beneficiary dashboard
+export function VestingScheduleDashboard({ accounts }: { accounts: any[] }) {
+  const { claimTokens } = useVestingProgram();
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold">Your Employee Vesting Accounts</h2>
+      <h2 className="text-2xl font-bold">Your Vesting Schedules</h2>
       {accounts.length === 0 ? (
         <div className="alert alert-info">
-          <span>No employee vesting accounts found.</span>
+          <span>No vesting schedules found.</span>
         </div>
       ) : (
         <div className="grid md:grid-cols-1 gap-6">
           {accounts.map((account) => (
-            <EmployeeVestingDetail
+            <VestingScheduleDetail
               key={account.publicKey.toString()}
               accountKey={new PublicKey(account.publicKey)}
               claimTokens={claimTokens}
-              programId={programId}
             />
           ))}
         </div>
@@ -461,30 +462,49 @@ export function EmployeeVestingDashboard({ accounts }: { accounts: any[] }) {
   );
 }
 
-function EmployeeVestingDetail({
+function VestingScheduleDetail({
   accountKey,
   claimTokens,
-  programId,
 }: {
   accountKey: PublicKey;
   claimTokens: any;
-  programId: PublicKey;
 }) {
-  const { employeeVestingQuery } = useEmployeeVestingAccount(accountKey);
-  const { employerVestingQuery } = useEmployerVestingAccount(
-    employeeVestingQuery.data?.employerVesting
+  const { connection } = useConnection();
+  const { vestingScheduleQuery } = useVestingScheduleAccount(accountKey);
+  const { vestingAuthorityQuery } = useVestingAuthorityAccount(
+    vestingScheduleQuery.data?.vestingAuthority
   );
 
-  const employeeVesting = employeeVestingQuery.data;
-  const employerVesting = employerVestingQuery.data;
+  const vestingSchedule = vestingScheduleQuery.data;
+  const vestingAuthority = vestingAuthorityQuery.data;
 
   const now = Math.floor(Date.now() / 1000);
+  const [blockchainTime, setBlockchainTime] = useState(
+    Math.floor(Date.now() / 1000)
+  );
 
-  if (employeeVestingQuery.isLoading || employerVestingQuery.isLoading) {
+  useEffect(() => {
+    async function fetchBlockchainTime() {
+      try {
+        const slot = await connection.getSlot();
+        const timestamp = await connection.getBlockTime(slot);
+        if (timestamp) setBlockchainTime(timestamp);
+      } catch (err) {
+        console.error("Error fetching blockchain time:", err);
+      }
+    }
+
+    fetchBlockchainTime();
+    // Refresh every minute
+    const interval = setInterval(fetchBlockchainTime, 60000);
+    return () => clearInterval(interval);
+  }, [connection]);
+
+  if (vestingScheduleQuery.isLoading || vestingAuthorityQuery.isLoading) {
     return <span className="loading loading-spinner loading-lg"></span>;
   }
 
-  if (!employeeVesting || !employerVesting) {
+  if (!vestingSchedule || !vestingAuthority) {
     return (
       <div className="alert alert-error">
         <span>Failed to load vesting details.</span>
@@ -494,35 +514,34 @@ function EmployeeVestingDetail({
 
   // Calculate vesting details
   const totalVestingTime =
-    Number(employeeVesting.endTime) - Number(employeeVesting.startTime);
-  const timeSinceStart = Math.max(0, now - Number(employeeVesting.startTime));
+    Number(vestingSchedule.endTime) - Number(vestingSchedule.startTime);
+  const timeSinceStart = Math.max(
+    0,
+    blockchainTime - Number(vestingSchedule.startTime)
+  );
   const timeElapsed = Math.min(timeSinceStart, totalVestingTime);
 
   // Calculate vested amount
   let vestedAmount = 0;
-  if (now >= Number(employeeVesting.endTime)) {
-    vestedAmount = Number(employeeVesting.totalAmount);
-  } else if (now > Number(employeeVesting.startTime)) {
+  if (now >= Number(vestingSchedule.endTime)) {
+    vestedAmount = Number(vestingSchedule.totalAmount);
+  } else if (now > Number(vestingSchedule.startTime)) {
     vestedAmount = Math.floor(
-      (Number(employeeVesting.totalAmount) * timeElapsed) / totalVestingTime
+      (Number(vestingSchedule.totalAmount) * timeElapsed) / totalVestingTime
     );
   }
 
-  const withdrawnAmount = Number(employeeVesting.totalWithdrawn);
+  const withdrawnAmount = Number(vestingSchedule.totalWithdrawn);
   const claimableAmount = Math.max(0, vestedAmount - withdrawnAmount);
 
   const vestedPercentage =
-    (vestedAmount / Number(employeeVesting.totalAmount)) * 100;
+    (vestedAmount / Number(vestingSchedule.totalAmount)) * 100;
   const withdrawnPercentage =
-    (withdrawnAmount / Number(employeeVesting.totalAmount)) * 100;
+    (withdrawnAmount / Number(vestingSchedule.totalAmount)) * 100;
 
   // Determine if user can claim
   const canClaim =
-    claimableAmount > 0 && now >= Number(employeeVesting.cliffTime);
-
-  // Calculate vesting schedule for the chart
-  const daysTotal = Math.floor(totalVestingTime / (60 * 60 * 24));
-  const daysSinceStart = Math.floor(timeSinceStart / (60 * 60 * 24));
+    claimableAmount > 0 && blockchainTime >= Number(vestingSchedule.cliffTime);
 
   // Format dates for display
   const formatDate = (timestamp: number) => {
@@ -530,23 +549,23 @@ function EmployeeVestingDetail({
   };
 
   const handleClaim = () => {
-    if (!employerVesting?.companyName) return;
+    if (!vestingAuthority?.vestingId) return;
 
     claimTokens.mutateAsync({
-      companyName: employerVesting.companyName,
+      vestingId: vestingAuthority.vestingId,
     });
   };
 
   return (
     <div className="card bg-base-100 shadow-xl">
       <div className="card-body">
-        <h2 className="card-title">{employerVesting.companyName} Vesting</h2>
+        <h2 className="card-title">{vestingAuthority.vestingId}</h2>
 
         <div className="stats shadow mt-4">
           <div className="stat">
             <div className="stat-title">Total Allocation</div>
             <div className="stat-value">
-              {employeeVesting.totalAmount.toString()}
+              {vestingSchedule.totalAmount.toString()}
             </div>
           </div>
 
@@ -575,27 +594,39 @@ function EmployeeVestingDetail({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
           <div>
             <p className="text-sm opacity-70">Start Date</p>
-            <p>{formatDate(Number(employeeVesting.startTime))}</p>
+            <p>
+              {new Date(
+                Number(vestingSchedule.startTime) * 1000
+              ).toLocaleString()}
+            </p>
           </div>
 
           <div>
             <p className="text-sm opacity-70">End Date</p>
-            <p>{formatDate(Number(employeeVesting.endTime))}</p>
+            <p>
+              {new Date(
+                Number(vestingSchedule.endTime) * 1000
+              ).toLocaleString()}
+            </p>
           </div>
 
           <div>
             <p className="text-sm opacity-70">Cliff Date</p>
-            <p>{formatDate(Number(employeeVesting.cliffTime))}</p>
+            <p>
+              {new Date(
+                Number(vestingSchedule.cliffTime) * 1000
+              ).toLocaleString()}
+            </p>
           </div>
 
           <div>
             <p className="text-sm opacity-70">Vesting Status</p>
             <p>
-              {now < Number(employeeVesting.startTime) ? (
+              {now < Number(vestingSchedule.startTime) ? (
                 <span className="badge badge-ghost">Not Started</span>
-              ) : now < Number(employeeVesting.cliffTime) ? (
+              ) : now < Number(vestingSchedule.cliffTime) ? (
                 <span className="badge badge-warning">Before Cliff</span>
-              ) : now < Number(employeeVesting.endTime) ? (
+              ) : now < Number(vestingSchedule.endTime) ? (
                 <span className="badge badge-primary">Active</span>
               ) : (
                 <span className="badge badge-success">Completed</span>
@@ -613,8 +644,16 @@ function EmployeeVestingDetail({
             ></div>
           </div>
           <div className="flex justify-between text-xs mt-1">
-            <span>{formatDate(Number(employeeVesting.startTime))}</span>
-            <span>{formatDate(Number(employeeVesting.endTime))}</span>
+            <span>
+              {new Date(
+                Number(vestingSchedule.startTime) * 1000
+              ).toLocaleString()}
+            </span>
+            <span>
+              {new Date(
+                Number(vestingSchedule.endTime) * 1000
+              ).toLocaleString()}
+            </span>
           </div>
         </div>
 
@@ -635,18 +674,29 @@ function EmployeeVestingDetail({
           </button>
         </div>
 
-        {!canClaim && now < Number(employeeVesting.cliffTime) && (
+        {!canClaim && now < Number(vestingSchedule.cliffTime) && (
           <div className="alert alert-warning mt-4">
-            <span>
-              Tokens will be available for claiming after the cliff date:{" "}
-              {formatDate(Number(employeeVesting.cliffTime))}
-            </span>
+            <div>
+              <span>
+                Tokens will be available for claiming after the cliff date:{" "}
+                {formatDate(Number(vestingSchedule.cliffTime))}
+              </span>
+              <p className="text-xs mt-1">
+                Current time: {formatDate(now)} (Browser)
+                <br />
+                Time until cliff:{" "}
+                {Math.floor(
+                  (Number(vestingSchedule.cliffTime) - now) / 60
+                )}{" "}
+                minutes
+              </p>
+            </div>
           </div>
         )}
 
         {!canClaim &&
           vestedAmount === withdrawnAmount &&
-          now >= Number(employeeVesting.cliffTime) && (
+          now >= Number(vestingSchedule.cliffTime) && (
             <div className="alert alert-success mt-4">
               <span>You have claimed all currently available tokens.</span>
             </div>
