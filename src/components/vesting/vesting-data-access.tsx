@@ -385,3 +385,57 @@ export function useVestingScheduleAccount(
     vestingScheduleQuery,
   };
 }
+
+export function useTreasuryBalance(
+  treasuryAccount: PublicKey | undefined,
+  tokenMint: PublicKey | undefined
+) {
+  const { connection } = useConnection();
+  const { cluster } = useCluster();
+
+  return useQuery({
+    queryKey: [
+      "treasury-balance",
+      {
+        cluster,
+        treasuryAccount: treasuryAccount?.toString(),
+        tokenMint: tokenMint?.toString(),
+      },
+    ],
+    queryFn: async () => {
+      if (!treasuryAccount || !tokenMint) return null;
+
+      try {
+        const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+          treasuryAccount,
+          { mint: tokenMint }
+        );
+
+        if (tokenAccounts.value.length === 0) return 0;
+
+        // Get the balance from the first matching account
+        const balance =
+          tokenAccounts.value[0]?.account.data.parsed.info.tokenAmount.amount;
+        return balance ? Number(balance) : 0;
+      } catch (error) {
+        console.error("Error fetching treasury balance:", error);
+        return null;
+      }
+    },
+    // Refresh every 30 seconds
+    refetchInterval: 30000,
+    enabled: !!treasuryAccount && !!tokenMint,
+  });
+}
+
+export function useTotalAllocatedTokens(vestingSchedules: any[] | undefined) {
+  return useMemo(() => {
+    if (!vestingSchedules || vestingSchedules.length === 0) return 0;
+
+    // Sum up total_amount for all schedules
+    return vestingSchedules.reduce(
+      (sum, schedule) => sum + Number(schedule.totalAmount || 0),
+      0
+    );
+  }, [vestingSchedules]);
+}

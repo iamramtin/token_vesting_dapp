@@ -62,16 +62,7 @@ export function VestingFeature() {
         </a>
       </div>
 
-      {activeTab === "create" && (
-        <div className="card bg-base-100 shadow-xl">
-          <div className="card-body">
-            <h2 className="text-2xl font-bold mb-4">
-              Create New Vesting Account
-            </h2>
-            <VestingCreate />
-          </div>
-        </div>
-      )}
+      {activeTab === "create" && <VestingCreate />}
 
       {activeTab === "authority" && (
         <>

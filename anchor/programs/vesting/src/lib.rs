@@ -6,7 +6,7 @@ pub use constants::*;
 use anchor_lang::prelude::*;
 use anchor_spl::{associated_token::AssociatedToken, token_interface::{self, Mint, TokenAccount, TokenInterface, TransferChecked}};
 
-declare_id!("Akr4zGgrNpMh6wgASsH24epvwmRXD7biTYhcC2z65GwV");
+declare_id!("Fsf76ALFSXkvw5eGdGFNTG4xEx2crcSX52avYTVyUN7a");
 
 /// A token vesting program that allows gradual release of tokens to beneficiaries
 /// over a predefined schedule. Features include:
