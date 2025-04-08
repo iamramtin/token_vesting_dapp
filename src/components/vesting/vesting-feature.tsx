@@ -4,26 +4,26 @@ import { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
 import {
   VestingCreate,
-  EmployerVestingDashboard,
-  EmployeeVestingDashboard,
+  VestingAuthorityDashboard,
+  VestingScheduleDashboard,
 } from "./vesting-ui";
 import { useVestingProgram } from "./vesting-data-access";
 
 export function VestingFeature() {
   const { publicKey } = useWallet();
-  const { getEmployerVestingAccounts, getEmployeeVestingAccounts } =
+  const { getVestingAuthorityAccounts, getVestingScheduleAccounts } =
     useVestingProgram();
   const [activeTab, setActiveTab] = useState<
-    "create" | "employer" | "employee"
+    "create" | "authority" | "schedule"
   >("create");
 
   // Loading states
-  const isEmployerLoading = getEmployerVestingAccounts.isLoading;
-  const isEmployeeLoading = getEmployeeVestingAccounts.isLoading;
+  const isAuthorityLoading = getVestingAuthorityAccounts.isLoading;
+  const isBeneficiaryLoading = getVestingScheduleAccounts.isLoading;
 
   // Data states
-  const employerAccounts = getEmployerVestingAccounts.data || [];
-  const employeeAccounts = getEmployeeVestingAccounts.data || [];
+  const authorityAccounts = getVestingAuthorityAccounts.data || [];
+  const scheduleAccounts = getVestingScheduleAccounts.data || [];
 
   if (!publicKey) {
     return (
@@ -47,45 +47,36 @@ export function VestingFeature() {
           Create Vesting
         </a>
         <a
-          className={`tab ${activeTab === "employer" ? "tab-active" : ""}`}
-          onClick={() => setActiveTab("employer")}
+          className={`tab ${activeTab === "authority" ? "tab-active" : ""}`}
+          onClick={() => setActiveTab("authority")}
         >
-          Employer Dashboard{" "}
-          {employerAccounts.length > 0 && `(${employerAccounts.length})`}
+          Authority Dashboard{" "}
+          {authorityAccounts.length > 0 && `(${authorityAccounts.length})`}
         </a>
         <a
-          className={`tab ${activeTab === "employee" ? "tab-active" : ""}`}
-          onClick={() => setActiveTab("employee")}
+          className={`tab ${activeTab === "schedule" ? "tab-active" : ""}`}
+          onClick={() => setActiveTab("schedule")}
         >
-          Employee Dashboard{" "}
-          {employeeAccounts.length > 0 && `(${employeeAccounts.length})`}
+          Schedule Dashboard{" "}
+          {scheduleAccounts.length > 0 && `(${scheduleAccounts.length})`}
         </a>
       </div>
 
-      {activeTab === "create" && (
-        <div className="card bg-base-100 shadow-xl">
-          <div className="card-body">
-            <h2 className="text-2xl font-bold mb-4">
-              Create New Vesting Account
-            </h2>
-            <VestingCreate />
-          </div>
-        </div>
-      )}
+      {activeTab === "create" && <VestingCreate />}
 
-      {activeTab === "employer" && (
+      {activeTab === "authority" && (
         <>
-          {isEmployerLoading ? (
+          {isAuthorityLoading ? (
             <div className="flex justify-center my-8">
               <span className="loading loading-spinner loading-lg"></span>
             </div>
-          ) : employerAccounts.length > 0 ? (
-            <EmployerVestingDashboard accounts={employerAccounts} />
+          ) : authorityAccounts.length > 0 ? (
+            <VestingAuthorityDashboard accounts={authorityAccounts} />
           ) : (
             <div className="alert alert-info">
               <div>
                 <span>
-                  You do not have any employer vesting accounts. Create one
+                  You do not have any authority vesting accounts. Create one
                   first.
                 </span>
               </div>
@@ -94,18 +85,18 @@ export function VestingFeature() {
         </>
       )}
 
-      {activeTab === "employee" && (
+      {activeTab === "schedule" && (
         <>
-          {isEmployeeLoading ? (
+          {isBeneficiaryLoading ? (
             <div className="flex justify-center my-8">
               <span className="loading loading-spinner loading-lg"></span>
             </div>
-          ) : employeeAccounts.length > 0 ? (
-            <EmployeeVestingDashboard accounts={employeeAccounts} />
+          ) : scheduleAccounts.length > 0 ? (
+            <VestingScheduleDashboard accounts={scheduleAccounts} />
           ) : (
             <div className="alert alert-info">
               <div>
-                <span>You do not have any employee vesting accounts.</span>
+                <span>You do not have any vesting schedule accounts.</span>
               </div>
             </div>
           )}

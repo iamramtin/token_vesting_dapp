@@ -21,23 +21,23 @@ describe("Vesting Smart Contract Tests", () => {
   const cliffTime = startTime + 60 * 60 * 24 * 30; // 1 month later
   const claimTime = startTime + 60 * 60 * 24 * 60; // 2 months later
   const mintDecimals = 2;
-  const treasuryAmount = 10_000 * 10 ** mintDecimals;
-  const employeeAllocation = 1_000 * 10 ** mintDecimals;
+  const treasuryTokenAllocation = 10_000 * 10 ** mintDecimals;
+  const beneficiaryTokenAllocation = 1_000 * 10 ** mintDecimals;
 
   // Keypairs
-  const employee = Keypair.generate();
-  let employer: Keypair;
+  const beneficiary = Keypair.generate();
+  let authority: Keypair;
 
   // Derived addresses
   let mint: PublicKey;
-  let employerVestingPDA: PublicKey;
-  let treasuryPDA: PublicKey;
-  let employeeVestingPDA: PublicKey;
+  let vestingAuthorityPda: PublicKey;
+  let treasuryPda: PublicKey;
+  let vestingSchedulePda: PublicKey;
 
   // Contexts
   let context: ProgramTestContext;
-  let employerProgram: Program<Vesting>;
-  let employeeProgram: Program<Vesting>;
+  let authorityProgram: Program<Vesting>;
+  let scheduleProgram: Program<Vesting>;
 
   beforeAll(async () => {
     const programId = new PublicKey(IDL.address);
@@ -47,7 +47,7 @@ describe("Vesting Smart Contract Tests", () => {
       [{ name: "vesting", programId }],
       [
         {
-          address: employee.publicKey,
+          address: beneficiary.publicKey,
           info: {
             lamports: 1_000_000_000,
             data: Buffer.alloc(0),
@@ -58,74 +58,79 @@ describe("Vesting Smart Contract Tests", () => {
       ]
     );
 
-    // Setup employer
-    const employerProvider = new BankrunProvider(context);
-    anchor.setProvider(employerProvider);
-    employerProgram = new Program(IDL as Vesting, employerProvider);
-    employer = employerProvider.wallet.payer;
+    // Setup authority
+    const authorityProvider = new BankrunProvider(context);
+    anchor.setProvider(authorityProvider);
+    authorityProgram = new Program(IDL as Vesting, authorityProvider);
+    authority = authorityProvider.wallet.payer;
 
-    // Create SPL token mint controlled by employer
+    // Create SPL token mint controlled by authority
     mint = await createMint(
       context.banksClient,
-      employer,
-      employer.publicKey,
+      authority,
+      authority.publicKey,
       null,
       mintDecimals
     );
 
-    // Setup employee program
-    const employeeProvider = new BankrunProvider(context);
-    employeeProvider.wallet = new NodeWallet(employee);
-    employeeProgram = new Program(IDL as Vesting, employeeProvider);
+    // Setup beneficiary program
+    const beneficiaryProvider = new BankrunProvider(context);
+    beneficiaryProvider.wallet = new NodeWallet(beneficiary);
+    scheduleProgram = new Program(IDL as Vesting, beneficiaryProvider);
 
     // Derive PDAs
-    [employerVestingPDA] = PublicKey.findProgramAddressSync(
-      [Buffer.from("employer_vesting"), Buffer.from(companyName)],
-      employerProgram.programId
+    [vestingAuthorityPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("vesting_authority"), Buffer.from(companyName)],
+      authorityProgram.programId
     );
 
-    [treasuryPDA] = PublicKey.findProgramAddressSync(
+    [treasuryPda] = PublicKey.findProgramAddressSync(
       [Buffer.from("vesting_treasury"), Buffer.from(companyName)],
-      employerProgram.programId
+      authorityProgram.programId
     );
 
-    [employeeVestingPDA] = PublicKey.findProgramAddressSync(
+    [vestingSchedulePda] = PublicKey.findProgramAddressSync(
       [
-        Buffer.from("employee_vesting"),
-        employee.publicKey.toBuffer(),
-        employerVestingPDA.toBuffer(),
+        Buffer.from("vesting_schedule"),
+        beneficiary.publicKey.toBuffer(),
+        vestingAuthorityPda.toBuffer(),
       ],
-      employerProgram.programId
+      authorityProgram.programId
     );
   });
 
-  it("creates employer vesting account", async () => {
+  it("creates authority vesting account", async () => {
     try {
-      const tx = await employerProgram.methods
-        .createEmployerVesting(companyName)
+      const tx = await authorityProgram.methods
+        .createVestingAuthority(companyName)
         .accounts({
-          employer: employer.publicKey,
+          authority: authority.publicKey,
           tokenMint: mint,
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 
-      console.log("Create employer vesting account transaction signature:", tx);
+      console.log(
+        "Create authority vesting account transaction signature:",
+        tx
+      );
 
-      const vestingAccount =
-        await employerProgram.account.employerVesting.fetch(employerVestingPDA);
+      const vestingAuthority =
+        await authorityProgram.account.vestingAuthority.fetch(
+          vestingAuthorityPda
+        );
 
-      expect(vestingAccount.employer.toBase58()).toBe(
-        employer.publicKey.toBase58()
+      expect(vestingAuthority.authority.toBase58()).toBe(
+        authority.publicKey.toBase58()
       );
 
       console.log(
-        "Employer vesting account:",
-        JSON.stringify(vestingAccount, null, 2)
+        "Authority vesting account:",
+        JSON.stringify(vestingAuthority, null, 2)
       );
     } catch (error: any) {
-      console.error("Create employer vesting account failed:", error);
-      throw new Error("Create employee vesting account failed");
+      console.error("Create authority vesting account failed:", error);
+      throw new Error("Create authority vesting account failed");
     }
   });
 
@@ -133,11 +138,11 @@ describe("Vesting Smart Contract Tests", () => {
     try {
       const tx = await mintTo(
         context.banksClient,
-        employer,
+        authority,
         mint,
-        treasuryPDA,
-        employer,
-        treasuryAmount
+        treasuryPda,
+        authority,
+        treasuryTokenAllocation
       );
 
       console.log("Mint treasury token account transaction signature:", tx);
@@ -147,41 +152,45 @@ describe("Vesting Smart Contract Tests", () => {
     }
   });
 
-  it("creates employee vesting account", async () => {
+  it("creates beneficiary vesting account", async () => {
     try {
-      const tx = await employerProgram.methods
-        .createEmployeeVesting(
+      const tx = await authorityProgram.methods
+        .createVestingSchedule(
           new BN(startTime),
           new BN(endTime),
           new BN(cliffTime),
-          new BN(employeeAllocation)
+          new BN(beneficiaryTokenAllocation)
         )
         .accounts({
-          employee: employee.publicKey,
-          employerVesting: employerVestingPDA,
+          beneficiary: beneficiary.publicKey,
+          vestingAuthority: vestingAuthorityPda,
         })
         .rpc({ commitment: "confirmed", skipPreflight: true });
 
-      console.log("Create employee account transaction signature:", tx);
+      console.log("Create beneficiary account transaction signature:", tx);
 
-      const employeeVesting =
-        await employerProgram.account.employeeVesting.fetch(employeeVestingPDA);
-      expect(employeeVesting.totalAmount.toNumber()).toBe(employeeAllocation);
+      const vestingSchedule =
+        await authorityProgram.account.vestingSchedule.fetch(
+          vestingSchedulePda
+        );
+      expect(vestingSchedule.totalAmount.toNumber()).toBe(
+        beneficiaryTokenAllocation
+      );
 
       console.log(
-        "Employee vesting account:",
-        JSON.stringify(employeeVesting, null, 2)
+        "Beneficiary vesting account:",
+        JSON.stringify(vestingSchedule, null, 2)
       );
     } catch (error: any) {
-      console.error("Create employee vesting account failed:", error);
-      throw new Error("Create employee vesting account failed");
+      console.error("Create beneficiary vesting account failed:", error);
+      throw new Error("Create beneficiary vesting account failed");
     }
   });
 
   it("fails to claim tokens before cliff time", async () => {
     try {
-      const tx = await employeeProgram.methods
-        .claimTokens(companyName)
+      const tx = await scheduleProgram.methods
+        .claim(companyName)
         .accounts({
           tokenProgram: TOKEN_PROGRAM_ID,
         })
@@ -195,35 +204,109 @@ describe("Vesting Smart Contract Tests", () => {
     }
   });
 
-  it("allows employee to claim vested tokens after cliff time", async () => {
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
+  it("allows beneficiary to claim vested tokens after cliff time", async () => {
     // Simulate time passing by advancing the clock
     const currentClock = await context.banksClient.getClock();
-
     context.setClock(
       new Clock(
         currentClock.slot,
         currentClock.epochStartTimestamp,
         currentClock.epoch,
         currentClock.leaderScheduleEpoch,
-        BigInt(claimTime)
+        BigInt(claimTime) // Advance to claimTime
       )
     );
 
     try {
-      const tx = await employeeProgram.methods
-        .claimTokens(companyName)
+      const tx = await scheduleProgram.methods
+        .claim(companyName)
         .accounts({
           tokenProgram: TOKEN_PROGRAM_ID,
         })
         .rpc({ commitment: "confirmed" });
 
-      expect(typeof tx).toBe("string");
+      const beneficiaryBalance = await context.banksClient.getBalance(
+        beneficiary.publicKey
+      );
+      expect(beneficiaryBalance).toBeGreaterThan(0); // Ensure tokens were claimed
+
       console.log("Claim tokens transaction signature", tx);
     } catch (error: any) {
       console.error("Claim tokens failed unexpectedly:", error);
       throw new Error("Claim should have succeeded after cliff time");
+    }
+  });
+
+  it("fails when non-authority tries to revoke a schedule", async () => {
+    try {
+      const tx = await scheduleProgram.methods
+        .revokeSchedule()
+        .accounts({
+          authority: beneficiary.publicKey,
+          vestingAuthority: vestingAuthorityPda,
+          vestingSchedule: vestingSchedulePda,
+        })
+        .signers([beneficiary])
+        .rpc({ commitment: "confirmed" });
+
+      console.error("Beneficiary revoke succeeded unexpectedly:", tx);
+      fail("Revoke should have failed when called by non-authority");
+    } catch (error: any) {
+      console.log("Error when beneficiary tries to revoke:", error);
+      expect(error.message).toContain("ConstraintHasOne");
+    }
+  });
+
+  it("allows authority to revoke a schedule", async () => {
+    try {
+      const tx = await authorityProgram.methods
+        .revokeSchedule()
+        .accounts({
+          authority: authority.publicKey,
+          vestingAuthority: vestingAuthorityPda,
+          vestingSchedule: vestingSchedulePda,
+        })
+        .signers([authority])
+        .rpc({ commitment: "confirmed" });
+
+      const vestingSchedule =
+        await scheduleProgram.account.vestingSchedule.fetch(vestingSchedulePda);
+
+      expect(vestingSchedule.revokedAt).not.toBeNull();
+
+      console.log("Schedule successfully revoked:", tx);
+    } catch (error: any) {
+      console.error("Revoke schedule failed unexpectedly:", error);
+      throw new Error("Schedule should have been revoked");
+    }
+  });
+
+  it("fails to revoke an already revoked schedule", async () => {
+    try {
+      const vestingScheduleBefore =
+        await authorityProgram.account.vestingSchedule.fetch(
+          vestingSchedulePda
+        );
+
+      expect(vestingScheduleBefore.revokedAt).not.toBeNull();
+      console.log(
+        "Confirmed schedule is already revoked at:",
+        vestingScheduleBefore?.revokedAt?.toString()
+      );
+
+      const tx = await scheduleProgram.methods
+        .revokeSchedule()
+        .accounts({ authority: authority.publicKey })
+        .signers([authority])
+        .rpc({ commitment: "confirmed" });
+
+      console.error("Second revoke succeeded unexpectedly:", tx);
+      fail("Revoke should have failed for an already revoked schedule");
+    } catch (error: any) {
+      console.log(
+        "Revoke failed as expected for an already revoked schedule:",
+        error.message
+      );
     }
   });
 });

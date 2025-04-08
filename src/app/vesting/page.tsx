@@ -9,7 +9,7 @@ export default function VestingPage() {
       <div className="w-full">
         <h1 className="text-4xl font-bold mb-6">Token Vesting Dashboard</h1>
         <p className="text-xl mb-8">
-          Create and manage token vesting plans for your team members
+          Create and manage token vesting plans
         </p>
         <Suspense
           fallback={

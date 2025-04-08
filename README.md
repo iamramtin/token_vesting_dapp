@@ -1,14 +1,19 @@
 # Solana Token Vesting dApp
 
-A decentralized token vesting application built on Solana using the Anchor framework. This dApp allows organizations to create vesting schedules for employees or stakeholders, where tokens are gradually unlocked over time according to predefined parameters.
+A decentralized token vesting application built on Solana using the Anchor framework. This dApp allows authorities to create vesting schedules for beneficiaries, where tokens are gradually unlocked over time according to predefined parameters.
 
 ## Features
 
-- Create vesting accounts for organizations/projects
-- Add employees with custom vesting schedules
-- Linear vesting with configurable cliff periods
+- Create vesting authorities to manage token allocations
+- Set up custom vesting schedules with configurable parameters:
+  - Linear vesting over defined periods
+  - Customizable cliff periods before tokens unlock
+  - Full vesting at schedule completion
+- Self-custodial treasury accounts controlled by the program
+- Schedule revocation by authorities
+- Secure token claiming for beneficiaries
 - Visual progress tracking of vesting schedules
-- Secure token claiming for employees
+- Comprehensive event tracking with detailed logs
 - Intuitive UI with real-time updates
 
 ## Getting Started
@@ -72,6 +77,12 @@ Ensure you have the following installed:
 
 ## Testing the dApp
 
+### Run the Test Suite
+
+```shell
+anchor test
+```
+
 ### Setup a Local Validator
 
 ```shell
@@ -104,55 +115,63 @@ solana-test-validator
 1. Generate new Solana addresses for testing:
 
    ```shell
-   # Generate employee keypair
-   solana-keygen new --no-bip39-passphrase -o employee-keypair.json
+   # Generate beneficiary keypair
+   solana-keygen new --no-bip39-passphrase -o beneficiary-keypair.json
 
-   # Get the public key to use as employee address
-   solana address -k employee-keypair.json
+   # Get the public key to use as beneficiary address
+   solana address -k beneficiary-keypair.json
    ```
 
 2. Fund the test accounts:
    ```shell
-   solana airdrop 2 $(solana address -k employee-keypair.json) --url localhost
+   solana airdrop 2 $(solana address -k beneficiary-keypair.json) --url localhost
    ```
 
 ## Using the dApp
 
-### Creating a Vesting Account (Employer)
+### Creating a Vesting Authority
 
 1. Connect your wallet
-2. Click "Create Vesting Account"
-3. Enter your company/project name
+2. Click "Create Vesting Authority"
+3. Enter your organization/project identifier (vesting ID)
 4. Enter the SPL token mint address you created earlier
-5. Click "Create Vesting Account"
+5. Click "Create"
 
 ### Funding the Treasury
 
-After creating a vesting account:
+After creating a vesting authority:
 
-1. Copy the treasury account address from your vesting account card
+1. Copy the treasury account address from your vesting authority card
 2. Send tokens to this address:
    ```shell
    spl-token transfer <TOKEN_MINT_ADDRESS> <AMOUNT> <TREASURY_ADDRESS> --fund-recipient --url localhost
    ```
 
-### Adding Employees to a Vesting Schedule
+### Creating Vesting Schedules for Beneficiaries
 
-1. Click "Add Employee" on your vesting account card
-2. Enter the employee's wallet address (use the test address you generated)
+1. Click "Add Beneficiary" on your vesting authority card
+2. Enter the beneficiary's wallet address (use the test address you generated)
 3. Enter the vesting parameters:
    - **Token Amount**: Total tokens to vest (e.g., 10000)
    - **Start Date**: When vesting begins
    - **Cliff Date**: When tokens first become available
    - **End Date**: When 100% of tokens are vested
-4. Click "Add Employee"
+4. Click "Create Schedule"
 
-### Claiming Tokens (Employee)
+### Claiming Tokens (Beneficiary)
 
-1. Connect with the employee's wallet
-2. Navigate to "Your Vesting Grants"
+1. Connect with the beneficiary's wallet
+2. Navigate to "Your Vesting Schedules"
 3. View vesting progress and available tokens
 4. Click "Claim Tokens" when tokens are available (after cliff period)
+
+### Revoking Schedules (Authority)
+
+1. Connect with the authority wallet
+2. Navigate to "Your Vesting Authorities"
+3. Select the specific beneficiary schedule
+4. Click "Revoke Schedule"
+5. Confirm the revocation
 
 ## Troubleshooting
 
@@ -167,6 +186,7 @@ After creating a vesting account:
 
    - Check that your treasury has sufficient tokens
    - Ensure your dates for vesting make sense (start < cliff < end)
+   - Verify token amounts are greater than zero
 
 3. **Account Not Found**:
 
@@ -174,19 +194,43 @@ After creating a vesting account:
    - Check you're connected to the right cluster in the UI
 
 4. **Insufficient Funds**:
+
    - Run `solana airdrop 2 <YOUR_ADDRESS> --url localhost` for SOL
    - For test tokens, mint more using `spl-token mint <TOKEN_MINT_ADDRESS> <AMOUNT>`
+
+5. **Revocation Issues**:
+   - Ensure only the authority is attempting to revoke schedules
+   - Verify the schedule hasn't already been revoked
+   - Check that all required accounts are passed to the revoke instruction
 
 ## Architecture
 
 ### On-Chain Program (Anchor/Rust)
 
-- **EmployerVesting**: Account for organizations to manage vesting schedules
-- **EmployeeVesting**: Account for individual employee vesting schedules
+- **VestingAuthority**: Account to manage token allocations and track the treasury
+- **VestingSchedule**: Account for individual beneficiary vesting schedules
 - **Instructions**:
-  - `createEmployerVesting`: Create a vesting account for an organization
-  - `createEmployeeVesting`: Add an employee to a vesting schedule
-  - `claimTokens`: Allow employees to claim vested tokens
+  - `createVestingAuthority`: Create a vesting authority with a treasury
+  - `createVestingSchedule`: Create a vesting schedule for a beneficiary
+  - `claim`: Allow beneficiaries to claim vested tokens
+  - `revokeSchedule`: Allow authorities to revoke vesting schedules
+
+### Account Structure
+
+- **VestingAuthority**:
+
+  - `authority`: The wallet that controls this vesting authority
+  - `vesting_id`: Unique identifier for this authority
+  - `token_mint`: The SPL token being distributed
+  - `treasury_account`: Self-custodial account holding the tokens
+
+- **VestingSchedule**:
+  - `beneficiary`: Recipient of the vested tokens
+  - `vesting_authority`: Associated vesting authority
+  - `total_amount`: Total tokens allocated
+  - `total_withdrawn`: Tokens already claimed
+  - `start_time`, `end_time`, `cliff_time`: Vesting parameters
+  - `revoked_at`: Optional timestamp when schedule was revoked
 
 ### Frontend (Next.js/React)
 
@@ -194,6 +238,14 @@ After creating a vesting account:
 - **vesting-ui.tsx**: UI components for the vesting interface
 - **vesting-feature.tsx**: Main component combining data and UI layers
 - **page.tsx**: Next.js page component
+
+## Future Enhancements
+
+Planned improvements to the dApp include:
+
+1. **Treasury Funding Instruction**: Direct on-chain method to fund the treasury
+2. **Schedule Modification**: Ability to modify existing schedules
+3. **Batch Processing**: Create multiple schedules or claim from multiple schedules at once
 
 ## License
 
